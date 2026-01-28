@@ -1,0 +1,154 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from IPython.display import Image, display
+import os
+import math as m
+import scipy
+from matplotlib.patches import Ellipse
+
+EPR = 0.5
+C = 3*100000000
+d_R = 34.5
+d_fi = 1.5
+d_teta = 1.6
+Q = 13
+P_sr = 650
+UBL = 22.5
+F = 8.6 * 10**(-8)
+D = 0.82
+T_obz = 1.8
+fi_min = 25
+fi_max = 55
+teta_min = 12
+teta_max = 64
+T_sh_ekv = 1220
+k_b = 1.38 * 10**-23
+K_sh_p = 100
+tau_d = 2 * d_R / C
+an_EPR = 0.48
+
+
+print(f"Длительность одного дискрета, мкс: {tau_d * 1000000:.15f}")
+dF = 1/tau_d
+print(f"Эффективная ширина полосы ФКМ сигнала, МГц: {dF/1000000:.15f}")
+f_nes = K_sh_p*dF
+print(f"Частота несущей ФКМ сигнала, более МГц: {f_nes/1000000:.15f}")
+lam_nes = C/f_nes
+print(f"Длина волны несущей ФКМ сигнала, менее м: {lam_nes:.15f}")
+# длину волны - принимаем равной ..., остальное берем с графика
+lam_nes = 0.05
+print(f"Длина волны несущей ФКМ сигнала, менее м: {lam_nes:.15f}")
+Loss = 0.015
+print(f"Погонное затухание, дБ/км: {Loss:.15f}")
+
+
+N_luch = 745
+N = 31
+tau_zash = 0
+tau_i = N*tau_d
+print(f"Длительность импульса , мкс: {tau_i*1000000:.15f}")
+T_p = tau_i * Q
+print(f"Период повторения , мкс: {T_p*1000000:.15f}")
+T_st_l = T_obz/N_luch
+print(f"Время стояния луча , мкс: {T_st_l*1000000:.15f}")
+N_imp = m.floor(T_st_l/T_p)
+print(f"Число импульсов , штук: {N_imp:.15f}")
+T_st_k = N_imp*T_p
+print(f"Время стояния луча корректированное , мкс: {T_st_k*1000000:.15f}")
+R_min_odn = C/2*(tau_i+tau_zash)
+print(f"Минимальная однозначная дальность , м: {R_min_odn:.15f}")
+R_max_odn = C/2*(T_p-tau_i-tau_zash)
+print(f"Максимальная однозначная дальность , м: {R_max_odn:.15f}")
+R_min_odn = C/2*(tau_i+tau_zash)
+print(f"Минимальная однозначная дальность , м: {R_min_odn:.15f}")
+R_odn = R_max_odn-R_min_odn
+print(f"Однозначная дальность , м: {R_odn:.15f}")
+f_odn = 1/2/T_p
+print(f"Однозначная скорость диапазон , гц: {f_odn:.15f}")
+V_odn = lam_nes/(2*2*T_p)
+print(f"Однозначная скорость , м/c: {V_odn:.15f}")
+d_V_odn = lam_nes/2*f_odn - (-lam_nes/2*f_odn)
+print(f"Однозначная скорость диапазон , м/c: {d_V_odn:.15f}")
+
+
+
+T_nak = T_p*N_imp
+d_V_r = 1/ T_nak * lam_nes/2
+print(f"Однозначная скорость диапазон , м/c: {d_V_r:.15f}")
+N_R = (R_odn)/d_R
+print(f"Каналов по дальности , штук: {N_R:.15f}")
+N_V = (1/T_p)/(1/T_p/N_imp)
+print(f"Каналов по скорости , штук: {N_V:.15f}")
+N_kan = N_V * N_R
+print(f"Каналов в луче , штук: {N_kan:.15f}")
+N_bez_f = N_luch * N_R
+print(f"Каналов по дальности во всех лучах , штук: {N_bez_f:.15f}")
+N_el_razr = N_luch * N_kan
+print(f"'Кол-во элементов разрешения' , штук: {N_el_razr:.15f}")
+print(f"'Кол-во ЫЫЫЫЫЫЫЫЫЫЫ лучейZOV' , штук: {N_luch:.15f}")
+print(f"-------------------------------------------------------------------------------------------------------------------")
+N_obr = 25
+
+# Определяем функцию R_inst (если она нужна)
+def R_inst(N_obr, C, T_st_k, tau_i, T_p):
+    # Здесь нужно указать правильную формулу
+    # Судя по вашему коду, возможно:
+    return C/2 * (T_st_k - tau_i - T_p * (N_obr - 1))
+    # Или другая формула в зависимости от задачи
+
+fig, ax = plt.subplots(figsize=(10, 4))
+num = 1
+while num < N_imp-N_obr+3:
+
+    R_i_n1 = C/2 * ((num-1) * T_p)
+    R_i_k1 = C/2 * ((num-1) * T_p + (tau_i + tau_zash))
+    if num == 1:
+        print(f"Зона [{num}] R_start = {R_i_n1:.6f},  R_end = {R_i_k1:.6f}")
+    else:
+        print(f"Зона [{num}] R_start = {R_i_n2:.6f},  R_end = {R_i_k1:.6f}")
+        #print(f"Ширина [{num}] = {R_i_k1-R_i_n2:.6f}")
+    R_i_n2 = C/2 * ((num) * T_p - tau_i)
+    R_i_k2 = C/2 * ((num) * T_p)
+    #print(f"22[{num}] R_start = {R_i_n1:.6f},  R_end = {R_i_k2:.6f}")
+    # прямоугольник (запрещённая зона)
+    ax.axvspan(
+        R_i_n1 / 1000,   # начало (км)
+        R_i_k1 / 1000,   # конец (км)
+        facecolor="#FF0000",
+        alpha=0.9,
+    )
+    ax.axvspan(
+        R_i_n2 / 1000,   # начало (км)
+        R_i_k2 / 1000,   # конец (км)
+        facecolor="#FF0000",
+        alpha=0.9,
+    )
+
+    num += 1
+
+# Вычисляем Rinstra1
+Rinstra1 = R_inst(N_obr, C, T_st_k, tau_i, T_p)
+
+# оформление
+ax.axvspan(
+    Rinstra1 / 1000,   # начало (км) - ДЕЛИМ НА 1000!
+    2*Rinstra1 / 1000,   # конец (км) - ДЕЛИМ НА 1000!
+    facecolor='#ff9999',
+    edgecolor='darkred',
+    alpha=1,
+)
+
+ax.set_xlim(0, Rinstra1*1.1 / 1000)       # подстрой под свой Rmax (в км!)
+ax.set_ylim(0, 1)
+ax.set_yticks([0.5])
+ax.set_yticklabels([''])
+
+ax.set_xlabel("Дальность, км")
+ax.set_title("Слепые зоны")
+
+plt.grid(axis='x', linestyle='--', alpha=0.5)
+plt.tight_layout()
+plt.show()
+
+print(f"'З33333333З': {Rinstra1:.15f}")
+print(f"'З33333333З': {C/2 * (T_st_k-tau_i):.15f}")
