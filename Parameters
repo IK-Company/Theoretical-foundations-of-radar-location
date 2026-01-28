@@ -1,0 +1,259 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from IPython.display import Image, display
+import os
+import math as m
+import scipy
+from matplotlib.patches import Ellipse
+
+EPR = 0.5
+C = 3*100000000
+d_R = 34.5
+d_fi = 1.5
+d_teta = 1.6
+Q = 13
+P_sr = 650
+UBL = 22.5
+F = 8.6 * 10**(-8)
+D = 0.82
+T_obz = 1.8
+fi_min = 25
+fi_max = 55
+teta_min = 12
+teta_max = 64
+T_sh_ekv = 1220
+k_b = 1.38 * 10**-23
+K_sh_p = 100
+tau_d = 2 * d_R / C
+an_EPR = 0.48
+
+
+print(f"Длительность одного дискрета, мкс: {tau_d * 1000000:.15f}")
+dF = 1/tau_d
+print(f"Эффективная ширина полосы ФКМ сигнала, МГц: {dF/1000000:.15f}")
+f_nes = K_sh_p*dF
+print(f"Частота несущей ФКМ сигнала, более МГц: {f_nes/1000000:.15f}")
+lam_nes = C/f_nes
+print(f"Длина волны несущей ФКМ сигнала, менее м: {lam_nes:.15f}")
+# длину волны - принимаем равной ..., остальное берем с графика
+lam_nes = 0.05
+print(f"Длина волны несущей ФКМ сигнала, менее м: {lam_nes:.15f}")
+Loss = 0.015
+print(f"Погонное затухание, дБ/км: {Loss:.15f}")
+
+
+N_luch = 745
+N = 31
+tau_zash = 0
+tau_i = N*tau_d
+print(f"Длительность импульса , мкс: {tau_i*1000000:.15f}")
+T_p = tau_i * Q
+print(f"Период повторения , мкс: {T_p*1000000:.15f}")
+T_st_l = T_obz/N_luch
+print(f"Время стояния луча , мкс: {T_st_l*1000000:.15f}")
+N_imp = m.floor(T_st_l/T_p)
+print(f"Число импульсов , штук: {N_imp:.15f}")
+T_st_k = N_imp*T_p
+print(f"Время стояния луча корректированное , мкс: {T_st_k*1000000:.15f}")
+R_min_odn = C/2*(tau_i+tau_zash)
+print(f"Минимальная однозначная дальность , м: {R_min_odn:.15f}")
+R_max_odn = C/2*(T_p-tau_i-tau_zash)
+print(f"Максимальная однозначная дальность , м: {R_max_odn:.15f}")
+R_min_odn = C/2*(tau_i+tau_zash)
+print(f"Минимальная однозначная дальность , м: {R_min_odn:.15f}")
+R_odn = R_max_odn-R_min_odn
+print(f"Однозначная дальность , м: {R_odn:.15f}")
+f_odn = 1/2/T_p
+print(f"Однозначная скорость диапазон , гц: {f_odn:.15f}")
+V_odn = lam_nes/(2*2*T_p)
+print(f"Однозначная скорость , м/c: {V_odn:.15f}")
+d_V_odn = lam_nes/2*f_odn - (-lam_nes/2*f_odn)
+print(f"Однозначная скорость диапазон , м/c: {d_V_odn:.15f}")
+
+
+
+T_nak = T_p*N_imp
+d_V_r = 1/ T_nak * lam_nes/2
+print(f"Однозначная скорость диапазон , м/c: {d_V_r:.15f}")
+N_R = (R_odn)/d_R
+print(f"Каналов по дальности , штук: {N_R:.15f}")
+N_V = (1/T_p)/(1/T_p/N_imp)
+print(f"Каналов по скорости , штук: {N_V:.15f}")
+N_kan = N_V * N_R
+print(f"Каналов в луче , штук: {N_kan:.15f}")
+N_bez_f = N_luch * N_R
+print(f"Каналов по дальности во всех лучах , штук: {N_bez_f:.15f}")
+N_el_razr = N_luch * N_kan
+print(f"'Кол-во элементов разрешения' , штук: {N_el_razr:.15f}")
+print(f"'Кол-во ЫЫЫЫЫЫЫЫЫЫЫ лучейZOV' , штук: {N_luch:.15f}")
+print(f"-------------------------------------------------------------------------------------------------------------------")
+
+def Rsv_max(
+    P_sr,      # средняя мощность передатчика, Вт
+    T_p,       # период повторения импульсов, с
+    N_obr,     # число обзоров (N_обр)
+    G,         # коэффициент усиления антенны (линейный)
+    sigma_c,   # эффективная площадь рассеяния цели, м^2
+    lambd,     # длина волны, м
+    L_sum,     # суммарные потери в тракте (линейный коэффициент)
+    F,         # коэффициент запаса / пороговый функционал
+    N_dez,     # N_безf (дезориентирующие факторы, ложные срабатывания и т.п.)
+    D,         # D (основание логарифма в формуле, как в методике)
+    k_delta,   # k_δ
+    T_sh       # T_шз (температура шума с учётом запаса), К
+):
+    # числитель
+    num = P_sr * T_p * N_obr * (G ** 2) * sigma_c * (lambd ** 2) / L_sum
+
+    # логарифмический множитель: ln(F / (N_дезф * N_обр)) / ln(D) - 1
+    log_term = m.log(F / (N_dez * N_obr)) / m.log(D) - 1.0
+
+    # знаменатель
+    den = (4 * m.pi) ** 3 * log_term * k_delta * T_sh
+
+    # четвертая корень
+    R = (num / den) ** 0.25
+    return R/1000
+def R_inst(N_obr, c, T_stk, tau_i, T_p):
+    return 0.5 * c * (T_stk - tau_i - T_p * (N_obr - 1)) * 1e-3  # км
+
+L_H_new = L_E_new = 1.775
+
+KIP = 0.9252 # для косинуса квадрат на пьедестале
+
+L_ud = 0.29
+S_eff = L_H_new * L_E_new * KIP
+print(f"'Эффективная площадь антенны' , м2: {L_H_new:.15f}")
+G = 4*m.pi* S_eff/lam_nes/lam_nes
+print(f"'Усиление' , раз: {G:.15f}")
+print(f"'Что есть' , дБ: {10*m.log10(G):.15f}")
+
+F1 = F/N_el_razr
+print(f"'Вероятность ложной тревоги на один элемент разрешения' , раз: {F1*10**12:.15f}")
+q = m.sqrt(2*(m.log(F1)/m.log(D) -1))
+print(f"'Кт различимсоти' , раз: {q:.15f}")
+print(f"'Кт различимсоти' , dB: {20*m.log10(q):.15f}")
+
+L_tr = L_ud * m.sqrt(L_E_new**2+L_H_new**2)
+
+L_summ = 20.23
+
+L_summ_raz = 105
+
+R_sv_max_max = Rsv_max(P_sr, T_p, N_imp, G, an_EPR, lam_nes, L_summ_raz, F, N_bez_f, D, k_b, T_sh_ekv)
+print(f"'дальность' , км: {R_sv_max_max:.15f}")
+
+
+def R_max_n(R_max, gamma, Rsv):
+    return R_max * 10**-((gamma * Rsv) / 20)
+
+Ndez_range = np.arange(1, 27)
+
+R_values = []
+R1_values = []
+
+
+for Nz in Ndez_range:
+    R = Rsv_max(P_sr, T_p, Nz, G, an_EPR, lam_nes, L_summ_raz, F, N_bez_f, D, k_b, T_sh_ekv)
+    R1 = R_inst(Nz, C, T_st_k, tau_i, T_p)
+
+    R_values.append(R)
+    R1_values.append(R1)
+
+
+# --------------------------
+#  Построение графика
+# --------------------------
+plt.figure(figsize=(12, 7))
+plt.plot(Ndez_range, R_values, marker='o', linewidth=2)
+plt.plot(Ndez_range, R1_values, marker='o', linewidth=2)
+
+plt.grid(True, ls='--', alpha=0.6)
+
+plt.xlabel("Число обработанных импульсов", fontsize=12)
+plt.ylabel("Дальность (км)", fontsize=12)
+plt.title("Зависимость максимальной энергетической и инструментальной \n дальностей от количества числа обработанных импульсов", fontsize=14)
+
+plt.xticks(Ndez_range)   # чтобы были видны все значения 1–27
+
+plt.show()
+
+import math as m
+
+def solve_D(
+    R_km,P_sr,T_p,N_obr,G,sigma_c,lambd,L_sum,F,N_dez,k_delta,T_sh
+):
+    # перевод дальности в метры
+    R = R_km * 1000.0
+
+    # числитель (как в Rsv_max)
+    num = P_sr * T_p * N_obr * (G ** 2) * sigma_c * (lambd ** 2) / L_sum
+
+    # общий множитель в знаменателе без логарифмического термина
+    den0 = (4 * m.pi) ** 3 * k_delta * T_sh
+
+    # A = num / (den0 * R^4)
+    A = num / (den0 * (R ** 4))
+
+    # ln(F / (N_dez * N_obr))
+    ln_ratio = m.log(F / (N_dez * N_obr))
+
+    # выражение для D
+    D = m.exp(ln_ratio / (A + 1.0))
+
+    return D
+
+def solve_L(
+    R_km, P_sr,T_p,N_obr,G,sigma_c,lambd,F,N_dez,D,k_delta,T_sh
+):
+    # перевод дальности в метры
+    R = R_km * 1000.0
+
+    # логарифмический множитель
+    log_term = m.log(F / (N_dez * N_obr)) / m.log(D) - 1.0
+
+    # числитель формулы
+    num = P_sr * T_p * N_obr * (G**2) * sigma_c * (lambd**2)
+
+    # знаменатель формулы
+    den = (4 * m.pi)**3 * k_delta * T_sh * (R**4) * log_term
+
+    # искомый суммарный коэффициент потерь
+    L_sum = num / den
+
+    return L_sum
+N_obr = 25       # ПОДСТАВИЛ!
+R_sv_max_opt = Rsv_max(P_sr, T_p, N_obr, G, an_EPR, lam_nes, L_summ_raz, F, N_bez_f, D, k_b, T_sh_ekv) # подставил свои 8 импульсов
+R_sv_max__1_opt = R_max_n(R_sv_max_opt, Loss, R_sv_max_opt) # подставил свои 9 импульсов
+R_sv_max__2_opt = R_max_n(R_sv_max_opt, Loss, R_sv_max__1_opt) # подставил свои 9 импульсов
+R_sv_max__3_opt = R_max_n(R_sv_max_opt, Loss, R_sv_max__2_opt) # подставил свои 9 импульсов
+R_sv_max__4_opt = R_max_n(R_sv_max_opt, Loss, R_sv_max__3_opt) # подставил свои 9 импульсов
+R_sv_max__5_opt = R_max_n(R_sv_max_opt, Loss, R_sv_max__4_opt) # подставил свои 9 импульсов
+
+print(f"'дальность первая итерация ' , км: {R_sv_max_opt:.15f}")
+print(f"'дальность 2 итерация ' , км: {R_sv_max__1_opt:.15f}")
+print(f"'дальность 3 итерация ' , км: {R_sv_max__2_opt:.15f}")
+print(f"'дальность 4 итерация ' , км: {R_sv_max__3_opt:.15f}")
+print(f"'дальность 5 итерация ' , км: {R_sv_max__4_opt:.15f}")
+print(f"'дальность 6 итерация ' , км: {R_sv_max__5_opt:.15f}")
+Rinstra = R_inst(N_obr, C, T_st_k, tau_i, T_p)
+
+print(f"'а инструментальная дальность' , км: {Rinstra:.15f}")
+
+print(f"'Потери' , раз: {solve_L(R_sv_max__5_opt, P_sr, T_p, N_obr, G, an_EPR, lam_nes, F, N_bez_f, D, k_b, T_sh_ekv):.15f}")
+L_summ_raz_1 = solve_L(R_sv_max__5_opt, P_sr, T_p, N_obr, G, an_EPR, lam_nes, F, N_bez_f, D, k_b, T_sh_ekv)
+print(f"'Изначальное D' , раз: {solve_D(R_sv_max__5_opt, P_sr, T_p, N_obr, G, an_EPR, lam_nes, L_summ_raz_1, F, N_bez_f, k_b, T_sh_ekv):.15f}")
+D1 = D
+print(f"'Новое  D' , раз: {D1:.15f}")
+
+q_ok = m.sqrt(2*(m.log(F/N_bez_f/N_obr)/m.log(D1) -1))
+print(f"'Итоговое кю' , раз: {q_ok:.15f}")
+SNR = q_ok**2/2
+print(f"'эсэнэр' , раз: {SNR:.15f}")
+print(f"'эсэнэр' , дБ: {10*m.log10(SNR):.15f}")
+
+k_sh = 1
+P_prm=k_b*T_sh_ekv*k_sh*SNR*dF
+print(f"'Минимальная мощность' , Вт: {P_prm*10000000000:.15f}")
+print(f"'Минимальная мощность' , дБВт: {10*m.log10(P_prm):.15f}")
+print(f"'Минимальная мощность' , дБмВт: {10*m.log10(1000*P_prm):.15f}")
