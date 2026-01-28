@@ -1,0 +1,500 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from IPython.display import Image, display
+import os
+import math as m
+import scipy
+from matplotlib.patches import Ellipse
+
+EPR = 0.5
+C = 3*100000000
+d_R = 34.5
+d_fi = 1.5
+d_teta = 1.6
+Q = 13
+P_sr = 650
+UBL = 22.5
+F = 8.6 * 10**(-8)
+D = 0.82
+T_obz = 1.8
+fi_min = 25
+fi_max = 55
+teta_min = 12
+teta_max = 64
+T_sh_ekv = 1220
+k_b = 1.38 * 10**-23
+
+
+K_sh_p = 100
+tau_d = 2 * d_R / C
+print(f"Длительность одного дискрета, мкс: {tau_d * 1000000:.15f}")
+dF = 1/tau_d
+print(f"Эффективная ширина полосы ФКМ сигнала, МГц: {dF/1000000:.15f}")
+f_nes = K_sh_p*dF
+print(f"Частота несущей ФКМ сигнала, более МГц: {f_nes/1000000:.15f}")
+lam_nes = C/f_nes
+print(f"Длина волны несущей ФКМ сигнала, менее м: {lam_nes:.15f}")
+# длину волны - принимаем равной ..., остальное берем с графика
+lam_nes = 0.05
+print(f"Длина волны несущей ФКМ сигнала, менее м: {lam_nes:.15f}")
+Loss = 0.015
+print(f"Погонное затухание, дБ/км: {Loss:.15f}")
+
+
+fi_n = (fi_max+fi_min)/2
+print(f"нормаль по азимуту, град: {fi_n:.15f}")
+teta_n = (teta_max+teta_min)/2
+print(f"нормаль по углу места, град: {teta_n:.15f}")
+fi_otk_max = max(abs(fi_n-fi_min), abs(fi_n-fi_min))
+print(f"максимальное отклонение по азимуту, град: {fi_otk_max:.15f}")
+teta_otk_max = max(abs(teta_n-teta_min), abs(teta_n-teta_min))
+print(f"максимальное отклонение по азимуту, град: {teta_otk_max:.15f}")
+d_fi_ork = (fi_max-fi_min)
+print(f"ширина по азимуту, град: {d_fi_ork:.15f}")
+d_teta_otk = (teta_max-teta_min)
+print(f"ширина по углу места, град: {d_teta_otk:.15f}")
+d_fi_0 = d_fi * m.cos(np.deg2rad(fi_otk_max))
+print(f"ширина неотклоненного луча по азимуту, град: {d_fi_0:.15f}")
+d_teta_0 = d_teta * m.cos(np.deg2rad(teta_otk_max))
+print(f"ширина неотклоненного луча по углу места, град: {d_teta_0:.15f}")
+
+#k_rl = 1.35 # для косинусного распределения
+k_rl = 1 # для косинусного квадратного распределения на пьедестале
+
+d_fi_0_r = d_fi_0/k_rl
+print(f"ширина нерасширенного неотклоненного луча по азимуту, град: {d_fi_0_r:.15f}")
+d_teta_0_r = d_teta_0/k_rl
+print(f"ширина нерасширенного неотклоненного луча по углу места, град: {d_teta_0_r:.15f}")
+
+
+
+L_H = 51*lam_nes/d_fi_0_r
+print(f"размер в H плоскости, м: {L_H:.15f}")
+L_E = 51*lam_nes/d_teta_0_r
+print(f"размер в E плоскости, м: {L_E:.15f}")
+print(f"Отношение в E плоскости, раз: {L_E/lam_nes:.15f}")
+print(f"Отношение в Н плоскости, раз: {L_H/lam_nes:.15f}")
+de_fi = 0.025
+print(f"Шаг в Е плоскости, раз: {de_fi:.15f}")
+de_teta = 0.025
+print(f"Шаг в H плоскости, раз: {de_teta:.15f}")
+
+
+
+print(f"число излучателей ФАР с учетом округления в большую сторону:")
+N_fi = m.ceil(2*L_H/lam_nes)
+print(f"Число элементов в Н плоскости, элементов: {N_fi:.15f}")
+N_teta = m.ceil(2*L_E/lam_nes)
+print(f"Число элементов в Е плоскости, элементов: {N_teta:.15f}")
+print(f"Всего элементов: {N_teta*N_fi:.15f}")
+L_E_new = N_teta*lam_nes/2
+L_H_new = N_fi*lam_nes/2
+print(f"Новый размер в Е плоскости: {L_E_new:.15f}")
+print(f"Новый размер в H плоскости: {L_H_new:.15f}")
+
+d_fi_new = 51 * lam_nes / L_H_new
+d_teta_new = 51 * lam_nes / L_E_new
+print(f"Новый угол фи: {d_fi_new:.15f}")
+print(f"Новый угол тета: {d_teta_new:.15f}")
+k_rl1 = 1.16
+d_fi_0_new = d_fi_new * k_rl1
+d_teta_0_new = d_teta_new * k_rl1
+print(f"уширенный новый фи: {d_fi_0_new:.15f}")
+print(f"уширенный новый тета: {d_teta_0_new:.15f}")
+
+
+
+L_phi   = d_fi_0_new   - d_fi_0_new*(2 - m.sqrt(3))/2
+L_theta = d_teta_0_new - d_teta_0_new/4
+print(f"шаг фи: {L_phi:.15f}")
+print(f"шаг тета: {L_theta:.15f}")
+
+def ellips(x_0,y_0,x_r,y_r):
+    temp = np.linspace(0, 2*m.pi, 100)
+    return x_0 + x_r*np.cos(temp)/2, y_0 + y_r*np.sin(temp)/2
+
+def luch_bk_rash(phi_range, theta_range, _d_fi_0_new, _d_teta_0_new):
+    L_phi   = _d_fi_0_new   - _d_fi_0_new*(2 - m.sqrt(3))/2
+    L_theta = _d_teta_0_new - _d_teta_0_new/4
+
+    x_cent = [0]
+    y_cent = [0]
+
+    x_sm = L_phi
+    while x_sm < phi_range/2 + 0.5*L_phi/m.cos(x_sm*m.pi/180):
+        x_cent += [x_sm, -x_sm]
+        y_cent += [0, 0]
+        x_sm += L_phi/m.cos(x_sm*m.pi/180)
+
+    y_sm = L_theta
+    while y_sm < theta_range/2 + 0.5*L_theta/m.cos(y_sm*m.pi/180):
+        x_sm = 0.5*L_phi
+        while x_sm < phi_range/2 + 0.5*L_phi/m.cos(x_sm*m.pi/180):
+            x_cent += [x_sm, -x_sm, x_sm, -x_sm]
+            y_cent += [y_sm, y_sm, -y_sm, -y_sm]
+            x_sm += L_phi/m.cos(x_sm*m.pi/180)
+
+        y_sm += L_theta/m.cos(y_sm*m.pi/180)
+        if y_sm > theta_range/2 + 0.5*L_theta/m.cos(y_sm*m.pi/180):
+            break
+
+        x_sm = 0
+        while x_sm < phi_range/2 + 0.5*L_phi/m.cos(x_sm*m.pi/180):
+            x_cent += [x_sm, -x_sm, x_sm, -x_sm]
+            y_cent += [y_sm, y_sm, -y_sm, -y_sm]
+            x_sm += L_phi/m.cos(x_sm*m.pi/180)
+        y_sm += L_theta/m.cos(y_sm*m.pi/180)
+    return x_cent, y_cent
+
+# Расстановка с учётом расширения
+x_cent, y_cent = luch_bk_rash(fi_max - fi_min, teta_max - teta_min, d_fi_0_new , d_teta_0_new)
+
+plt.figure(figsize=(30, 16))
+plt.scatter(x_cent, y_cent, s=1, c='r')
+plt.xlim([-40, 40])
+plt.ylim([-40, 40])
+plt.grid(True)
+
+dn_x = []
+dn_y = []
+
+# индексы окружностей, которые хотим выделить поверх графика
+i_mark = 0
+j_mark = 5930
+
+ellipse_i_x = None
+ellipse_i_y = None
+ellipse_j_x = None
+ellipse_j_y = None
+
+for i in range(len(x_cent)):
+    _x, _y = ellips(
+        x_cent[i],
+        y_cent[i],
+        d_fi_0_new   / m.cos(x_cent[i]*m.pi/180),
+        d_teta_0_new / m.cos(y_cent[i]*m.pi/180)
+    )
+
+
+
+    # запоминаем полные координаты окружности с номером i_mark
+    if i == i_mark:
+        ellipse_i_x = _x.copy()
+        ellipse_i_y = _y.copy()
+
+    # запоминаем полные координаты окружности с номером j_mark
+    if i == j_mark:
+        ellipse_j_x = _x.copy()
+        ellipse_j_y = _y.copy()
+
+    dn_x = np.concatenate((dn_x, _x), axis=None)
+    dn_y = np.concatenate((dn_y, _y), axis=None)
+
+# фоновые окружности
+plt.scatter(dn_x, dn_y, s=0.25, c='b')
+
+# контур прямоугольника по отклонениям
+plt.plot(
+    [-(fi_max - fi_min)/2,  (fi_max - fi_min)/2,  (fi_max - fi_min)/2,  -(fi_max - fi_min)/2,  -(fi_max - fi_min)/2],
+    [ (teta_max - teta_min)/2, (teta_max - teta_min)/2, -(teta_max - teta_min)/2, -(teta_max - teta_min)/2, (teta_max - teta_min)/2],
+    'r--',
+)
+
+# поверх — выделенные окружности
+if ellipse_i_x is not None:
+    plt.plot(ellipse_i_x, ellipse_i_y, 'g', linewidth=2, label=f'Окружность #{i_mark}')
+if ellipse_j_x is not None:
+    plt.plot(ellipse_j_x, ellipse_j_y, 'm', linewidth=2, label=f'Окружность #{j_mark}')
+
+plt.title('Расстановка лучей в биконической СК')
+plt.xlabel('Угол отклонения луча в горизонтальной плоскости, град')
+plt.ylabel('Угол отклонения луча в вертикальной плоскости, град')
+
+
+#Переход к сферической СК
+def bk_to_sph(x_bk,y_bk,phi_cent,theta_cent):
+    y_sph = m.asin(m.sin((y_bk + theta_cent)*m.pi/180)/m.sqrt(1 + ((m.cos(y_bk*m.pi/180))**2*(m.tan(x_bk*m.pi/180))**2)))
+    x_sph = m.atan((m.cos(y_bk*m.pi/180)*m.tan(x_bk*m.pi/180))/(m.cos((y_bk + theta_cent)*m.pi/180)))
+    return x_sph*180/m.pi + phi_cent, y_sph*180/m.pi
+
+L_phi = d_fi_0_new - d_fi_0_new*(2 - m.sqrt(3))/2
+L_theta = d_teta_0_new - d_teta_0_new/4
+
+#Расставим лучи на полусферу в биконической СК
+x_cent_bk, y_cent_bk = luch_bk_rash(90,90, d_fi_0_new , d_teta_0_new)
+number = 0
+#Удаление лишних лучей и перевод в сферическую СК
+x_cent_sp = []
+y_cent_sp = []
+i = 0
+while i < len(x_cent_bk):
+
+    xs, ys = bk_to_sph(x_cent_bk[i], y_cent_bk[i], fi_n, teta_n)
+    #
+    x_r, trash = bk_to_sph(x_cent_bk[i] + L_phi/m.cos(x_cent_bk[i]*m.pi/180), y_cent_bk[i], fi_n, teta_n)
+    x_r = 0.4*abs(xs - x_r)
+    x_l, trash = bk_to_sph(x_cent_bk[i] - L_phi/m.cos(x_cent_bk[i]*m.pi/180), y_cent_bk[i], fi_n, teta_n)
+    x_l = 0.4*abs(xs - x_l)
+    #
+    trash, y_up = bk_to_sph(x_cent_bk[i], y_cent_bk[i] + L_theta/m.cos(y_cent_bk[i]*m.pi/180), fi_n, teta_n)
+    y_up = 0.25*abs(ys - y_up)
+    trash, y_dwn = bk_to_sph(x_cent_bk[i], y_cent_bk[i] - L_theta/m.cos(y_cent_bk[i]*m.pi/180), fi_n, teta_n)
+    y_dwn = 0.25*abs(ys - y_dwn)
+
+#    if (xs < fi_min - x_l) or (xs > fi_max + x_r) or (ys < teta_min - y_dwn) or (ys > teta_max + y_up):
+#        del x_cent_bk[i]
+#        del y_cent_bk[i]
+        #i = i;
+#    else:
+    i += 1
+    x_cent_sp += [xs]
+    y_cent_sp += [ys]
+
+#Отрисовка эллипсов лучей ДН в биконической СК
+dn_x_bk = []
+dn_y_bk = []
+for i in range(len(x_cent_bk)):
+    _x, _y = ellips(x_cent_bk[i],y_cent_bk[i],d_fi_0_new/m.cos(x_cent_bk[i]*m.pi/180),d_teta_0_new/m.cos(y_cent_bk[i]*m.pi/180))
+    dn_x_bk = np.concatenate((dn_x_bk, _x), axis = None)
+    number = number + 1
+    dn_y_bk = np.concatenate((dn_y_bk, _y), axis = None)
+
+#Отрисовка лучей ДН в сферической СК
+dn_x_sp = []
+dn_y_sp = []
+for i in range(len(dn_x_bk)):
+    xs, ys = bk_to_sph(dn_x_bk[i], dn_y_bk[i], fi_n, teta_n)
+    dn_x_sp += [xs]
+    dn_y_sp += [ys]
+
+plt.figure(figsize=(32, 16))
+plt.scatter(x_cent_sp,y_cent_sp,s = 2,c ='r')
+print('Количество лучей',number)
+plt.plot([fi_min, fi_max, fi_max, fi_min, fi_min],[teta_min, teta_min, teta_max, teta_max, teta_min],'r--',)
+plt.scatter(dn_x_sp,dn_y_sp,s = 0.25,c ='b')
+plt.title('Расстановка лучей в сферической СК')
+plt.xlabel('Угол отклонения луча по азимуту, град')
+plt.ylabel('Угол отклонения луча по углу места, град')
+#plt.xlim([-40,130])
+#plt.ylim([0,90])
+plt.xlim([0,1.2*fi_max])
+plt.ylim([0,1.2*teta_max])
+plt.grid(True)
+
+# Улучшенное отображение
+plt.figure(figsize=(30, 16))
+plt.scatter(x_cent, y_cent, s=50, c='r', alpha=0.6, label='Центры лучей')
+
+# Фоновые окружности
+plt.scatter(dn_x, dn_y, s=5, c='b', alpha=0.1)
+
+# Выделенные окружности
+if ellipse_i_x is not None:
+    plt.plot(ellipse_i_x, ellipse_i_y, 'g', linewidth=3, label=f'Луч #{i_mark}')
+if ellipse_j_x is not None:
+    plt.plot(ellipse_j_x, ellipse_j_y, 'm', linewidth=3, label=f'Луч #{j_mark}')
+
+plt.title('Расстановка лучей ФАР в биконической системе координат', fontsize=16, fontweight='bold')
+plt.xlabel('Угол отклонения в горизонтальной плоскости, град', fontsize=14)
+plt.ylabel('Угол отклонения в вертикальной плоскости, град', fontsize=14)
+plt.grid(True, alpha=0.3)
+plt.legend(loc='upper right', fontsize=12)
+plt.tight_layout()
+
+# Сохранение в файл
+plt.savefig('antenna_pattern.png', dpi=300, bbox_inches='tight')
+print("Изображение сохранено как 'antenna_pattern.png'")
+plt.show()
+
+# После получения x_cent_bk и y_cent_bk добавляем фильтрацию по прямоугольной области
+
+# Функция для проверки, пересекается ли эллипс с прямоугольной областью
+def ellipse_intersects_rectangle(x_center, y_center, x_radius, y_radius, rect_x_min, rect_x_max, rect_y_min, rect_y_max):
+    """
+    Проверяет, пересекается ли эллипс с прямоугольником.
+    Эллипс задан центром (x_center, y_center) и радиусами (x_radius, y_radius).
+    """
+    # Проверяем, находится ли центр внутри прямоугольника
+    if (rect_x_min <= x_center <= rect_x_max and
+        rect_y_min <= y_center <= rect_y_max):
+        return True
+
+    # Проверяем пересечение по оси X
+    x_dist = min(abs(x_center - rect_x_min), abs(x_center - rect_x_max))
+    if x_center < rect_x_min:
+        x_dist = rect_x_min - x_center
+    elif x_center > rect_x_max:
+        x_dist = x_center - rect_x_max
+
+    # Проверяем пересечение по оси Y
+    y_dist = min(abs(y_center - rect_y_min), abs(y_center - rect_y_max))
+    if y_center < rect_y_min:
+        y_dist = rect_y_min - y_center
+    elif y_center > rect_y_max:
+        y_dist = y_center - rect_y_max
+
+    # Проверяем, пересекается ли эллипс с прямоугольником
+    # Используем аппроксимацию: эллипс пересекает прямоугольник, если расстояние до ближайшей точки
+    # меньше соответствующих радиусов
+    if x_dist <= x_radius and y_dist <= y_radius:
+        return True
+
+    return False
+
+# Функция для фильтрации лучей, выходящих за пределы прямоугольника
+def filter_rays_by_rectangle(x_centers_bk, y_centers_bk, d_fi_0_new, d_teta_0_new,
+                            fi_n, teta_n, fi_min, fi_max, teta_min, teta_max):
+    """
+    Фильтрует лучи, удаляя те, которые полностью выходят за пределы прямоугольной области.
+    Возвращает отфильтрованные списки центров в биконической и сферической СК.
+    """
+    x_cent_bk_filtered = []
+    y_cent_bk_filtered = []
+    x_cent_sp_filtered = []
+    y_cent_sp_filtered = []
+
+    for i in range(len(x_centers_bk)):
+        x_bk = x_centers_bk[i]
+        y_bk = y_centers_bk[i]
+
+        # Переводим центр луча в сферическую СК
+        xs, ys = bk_to_sph(x_bk, y_bk, fi_n, teta_n)
+
+        # Вычисляем радиусы эллипса в биконической СК
+        x_radius_bk = d_fi_0_new / m.cos(x_bk * m.pi / 180) / 2
+        y_radius_bk = d_teta_0_new / m.cos(y_bk * m.pi / 180) / 2
+
+        # Проверяем, пересекается ли эллипс с прямоугольной областью
+        # Для этого проверяем несколько точек на границе эллипса
+        intersects = False
+
+        # Проверяем центр луча
+        if (fi_min <= xs <= fi_max and teta_min <= ys <= teta_max):
+            intersects = True
+
+        # Если центр не внутри, проверяем граничные точки эллипса
+        if not intersects:
+            # Проверяем 8 точек на эллипсе (0, 90, 180, 270 градусов + диагонали)
+            angles = [0, 45, 90, 135, 180, 225, 270, 315]
+            for angle in angles:
+                # Точка на эллипсе в биконической СК
+                x_ellipse_bk = x_bk + x_radius_bk * m.cos(angle * m.pi / 180)
+                y_ellipse_bk = y_bk + y_radius_bk * m.sin(angle * m.pi / 180)
+
+                # Переводим в сферическую СК
+                xs_test, ys_test = bk_to_sph(x_ellipse_bk, y_ellipse_bk, fi_n, teta_n)
+
+                # Проверяем, находится ли точка внутри прямоугольника
+                if (fi_min <= xs_test <= fi_max and teta_min <= ys_test <= teta_max):
+                    intersects = True
+                    break
+
+        # Если луч пересекает прямоугольник, добавляем его
+        if intersects:
+            x_cent_bk_filtered.append(x_bk)
+            y_cent_bk_filtered.append(y_bk)
+            x_cent_sp_filtered.append(xs)
+            y_cent_sp_filtered.append(ys)
+
+    return (x_cent_bk_filtered, y_cent_bk_filtered,
+            x_cent_sp_filtered, y_cent_sp_filtered)
+
+# Применяем фильтрацию лучей
+x_cent_bk_filtered, y_cent_bk_filtered, x_cent_sp_filtered, y_cent_sp_filtered = filter_rays_by_rectangle(
+    x_cent_bk, y_cent_bk, d_fi_0_new, d_teta_0_new,
+    fi_n, teta_n, fi_min, fi_max, teta_min, teta_max
+)
+
+print(f"Количество лучей до фильтрации: {len(x_cent_bk)}")
+print(f"Количество лучей после фильтрации: {len(x_cent_bk_filtered)}")
+
+# Отрисовка эллипсов лучей ДН в биконической СК (только отфильтрованных)
+dn_x_bk_filtered = []
+dn_y_bk_filtered = []
+number_filtered = 0
+
+for i in range(len(x_cent_bk_filtered)):
+    _x, _y = ellips(
+        x_cent_bk_filtered[i],
+        y_cent_bk_filtered[i],
+        d_fi_0_new / m.cos(x_cent_bk_filtered[i] * m.pi / 180),
+        d_teta_0_new / m.cos(y_cent_bk_filtered[i] * m.pi / 180)
+    )
+    dn_x_bk_filtered = np.concatenate((dn_x_bk_filtered, _x), axis=None)
+    dn_y_bk_filtered = np.concatenate((dn_y_bk_filtered, _y), axis=None)
+    number_filtered += 1
+
+# Отрисовка лучей ДН в сферической СК (только отфильтрованных)
+dn_x_sp_filtered = []
+dn_y_sp_filtered = []
+
+for i in range(len(dn_x_bk_filtered)):
+    xs, ys = bk_to_sph(dn_x_bk_filtered[i], dn_y_bk_filtered[i], fi_n, teta_n)
+    dn_x_sp_filtered.append(xs)
+    dn_y_sp_filtered.append(ys)
+
+# Отрисовка результатов фильтрации
+plt.figure(figsize=(32, 16))
+
+# Отображаем отфильтрованные лучи
+plt.scatter(x_cent_sp_filtered, y_cent_sp_filtered, s=20, c='r', label='Оставшиеся лучи')
+
+# Прямоугольная область
+plt.plot([fi_min, fi_max, fi_max, fi_min, fi_min],
+         [teta_min, teta_min, teta_max, teta_max, teta_min],
+         'r--', linewidth=2, label='Наша область')
+
+# Отображаем эллипсы отфильтрованных лучей
+plt.scatter(dn_x_sp_filtered, dn_y_sp_filtered, s=0.5, c='b', alpha=0.5)
+
+plt.title('Расстановка лучей в сферической СК (после фильтрации)', fontsize=16)
+plt.xlabel('Угол отклонения луча по азимуту, град', fontsize=14)
+plt.ylabel('Угол отклонения луча по углу места, град', fontsize=14)
+plt.xlim([0, 1.2 * fi_max])
+plt.ylim([0, 1.2 * teta_max])
+plt.grid(True, alpha=0.3)
+plt.legend(loc='upper right')
+plt.tight_layout()
+
+# Сохранение в файл
+plt.savefig('antenna_pattern_filtered.png', dpi=300, bbox_inches='tight')
+print(f"Изображение сохранено как 'antenna_pattern_filtered.png'")
+print(f"Количество отфильтрованных лучей: {number_filtered}")
+
+plt.show()
+
+# Дополнительно: отображение только отфильтрованных лучей в биконической СК
+plt.figure(figsize=(30, 16))
+
+# Отображаем центры отфильтрованных лучей
+plt.scatter(x_cent_bk_filtered, y_cent_bk_filtered, s=5, c='r', alpha=0.6,
+            label='')
+
+# Отображаем эллипсы отфильтрованных лучей
+plt.scatter(dn_x_bk_filtered, dn_y_bk_filtered, s=1, c='b', alpha=0.3)
+
+# Контур целевой области (в биконических координатах)
+# Для отображения преобразуем углы прямоугольника в биконические
+rect_corners = [
+    (fi_min - fi_n, teta_min - teta_n),
+    (fi_max - fi_n, teta_min - teta_n),
+    (fi_max - fi_n, teta_max - teta_n),
+    (fi_min - fi_n, teta_max - teta_n),
+    (fi_min - fi_n, teta_min - teta_n)
+]
+
+x_corners_bk = [c[0] for c in rect_corners]
+y_corners_bk = [c[1] for c in rect_corners]
+
+plt.title('Расстановка лучей в биконической СК (после фильтрации)', fontsize=16)
+plt.xlabel('Угол отклонения в горизонтальной плоскости, град', fontsize=14)
+plt.ylabel('Угол отклонения в вертикальной плоскости, град', fontsize=14)
+plt.xlim([-40, 40])
+plt.ylim([-40, 40])
+plt.grid(True, alpha=0.3)
+plt.legend(loc='upper right')
+plt.tight_layout()
+
+plt.savefig('antenna_pattern_bk_filtered.png', dpi=300, bbox_inches='tight')
+print(f"Изображение сохранено как 'antenna_pattern_bk_filtered.png'")
+plt.show()
