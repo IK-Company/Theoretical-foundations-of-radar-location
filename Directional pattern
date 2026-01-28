@@ -1,0 +1,165 @@
+# ДН косинуса на пьедестале в сравнении с равномерным распределением
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ---------------- Параметры решётки и распределения ----------------
+N = 16          # число элементов ФАР
+DELTA = 0.447    # коэффициент пьедестала Δ для cos^2-на-пьедестале (0..1)
+
+# ---------------- Вспомогательные функции ----------------
+
+def compute_pattern_and_params(weights, oversampling=8192):
+    w = np.asarray(weights, dtype=float)
+    N_local = len(w)
+
+    # Коэффициент использования поверхности (КИП) по амплитуде:
+    # KИП = (Σw)^2 / (N * Σw^2); для равномерного распределения KИП = 1
+    kip = (w.sum() ** 2) / (N_local * np.sum(w ** 2))
+
+    # БПФ с передискретизацией
+    N_fft = oversampling * N_local
+    AF = np.fft.fftshift(np.fft.fft(w, n=N_fft))
+    AF_abs = np.abs(AF)
+    AF_abs /= AF_abs.max()
+
+    # Пространственная частота и переход к углу (d = λ/2 => u = sin θ = 2 f)
+    f = np.fft.fftshift(np.fft.fftfreq(N_fft, d=1.0))
+    u = 2.0 * f
+
+    # Физически допустимая область |u| ≤ 1
+    mask = np.abs(u) <= 1.0 + 1e-9
+    u_phys = u[mask]
+    AF_phys = AF_abs[mask]
+
+    theta = np.degrees(np.arcsin(u_phys))
+
+    eps = 1e-15
+    AF_dB = 20.0 * np.log10(AF_phys + eps)
+    AF_dB -= AF_dB.max()  # нормировка по максимуму
+
+    # --- ширина главного лепестка по уровню -3 дБ ---
+    idx_max = int(np.argmax(AF_dB))
+    level_3dB = -3.0
+
+    # левая граница по -3 дБ
+    idx_left = idx_max
+    while idx_left > 0 and AF_dB[idx_left] > level_3dB:
+        idx_left -= 1
+
+    if idx_left == 0:
+        theta_left = theta[0]
+    else:
+        x1, y1 = theta[idx_left],     AF_dB[idx_left]
+        x2, y2 = theta[idx_left + 1], AF_dB[idx_left + 1]
+        theta_left = x1 + (level_3dB - y1) * (x2 - x1) / (y2 - y1) if y2 != y1 else x1
+
+    # правая граница по -3 дБ
+    idx_right = idx_max
+    while idx_right < len(AF_dB) - 1 and AF_dB[idx_right] > level_3dB:
+        idx_right += 1
+
+    if idx_right == len(AF_dB) - 1:
+        theta_right = theta[-1]
+    else:
+        x1, y1 = theta[idx_right - 1], AF_dB[idx_right - 1]
+        x2, y2 = theta[idx_right],     AF_dB[idx_right]
+        theta_right = x1 + (level_3dB - y1) * (x2 - x1) / (y2 - y1) if y2 != y1 else x2
+
+    HPBW = theta_right - theta_left
+
+    # --- поиск всех боковых лепестков ---
+    main_indices = set(range(idx_left, idx_right + 1))
+    sidelobes = []
+    for i in range(1, len(AF_dB) - 1):
+        if i in main_indices:
+            continue
+        if AF_dB[i] > AF_dB[i - 1] and AF_dB[i] > AF_dB[i + 1]:
+            sidelobes.append((AF_dB[i], theta[i], i))
+
+    if sidelobes:
+        # глобальный УБЛ — максимум по всем боковым лепесткам
+        SLL_global = max(sl[0] for sl in sidelobes)
+        # первый боковой лепесток — ближайший по индексу к главному
+        first = min(sidelobes, key=lambda sl: abs(sl[2] - idx_max))
+        SLL_first = first[0]
+    else:
+        SLL_global = None
+        SLL_first = None
+
+    return {
+        "theta": theta,
+        "AF_dB": AF_dB,
+        "HPBW": HPBW,
+        "SLL_global": SLL_global,
+        "SLL_first": SLL_first,
+        "KIP": kip,
+        "level_3dB": level_3dB,
+    }
+
+
+def cos2_pedestal_weights(N, Delta):
+    """
+    Косинус-квадрат на пьедестале:
+    A(x) = Delta + (1 - Delta) * cos^2(pi x / 2),  x ∈ [-1, 1]
+    Delta ∈ [0, 1] — амплитуда на краю апертуры.
+    """
+    n = np.arange(N)
+    x = (n - (N - 1) / 2) / ((N - 1) / 2)  # нормированная координата [-1, 1]
+    A = Delta + (1.0 - Delta) * np.cos(np.pi * x / 2.0) ** 2
+    return A
+
+# ---------------- Расчёт ----------------
+
+# Равномерное распределение
+w_uniform = np.ones(N)
+params_uniform = compute_pattern_and_params(w_uniform)
+
+# Распределение cos^2 на пьедестале с заданным DELTA
+w_cos2 = cos2_pedestal_weights(N, DELTA)
+params_cos2 = compute_pattern_and_params(w_cos2)
+
+# Коэффициент расширения луча
+beam_expansion = params_cos2["HPBW"] / params_uniform["HPBW"]
+
+# ---------------- Вывод результатов ----------------
+
+print("=== Входные данные ===")
+print(f"N = {N} элементов")
+print(f"DELTA (пьедестал для cos^2): {DELTA:.4f}\n")
+
+
+print("=== Равномерное распределение ===")
+print(f"Ширина главного лепестка (по -3 дБ): {params_uniform['HPBW']:.3f} град")
+print(f"Глобальный УБЛ: {params_uniform['SLL_global']:.3f} дБ")
+print(f"Первый боковой лепесток: {params_uniform['SLL_first']:.3f} дБ")
+print(f"КИП: {params_uniform['KIP']:.4f}\n")
+
+
+print("=== cos² на пьедестале ===")
+print(f"Ширина главного лепестка (по -3 дБ): {params_cos2['HPBW']:.3f} град")
+print(f"Глобальный УБЛ: {params_cos2['SLL_global']:.3f} дБ")
+print(f"Первый боковой лепесток: {params_cos2['SLL_first']:.3f} дБ")
+print(f"КИП: {params_cos2['KIP']:.4f}\n")
+
+print("=== Сравнение ===")
+print(f"Коэффициент расширения луча (cos² / равномерное): {beam_expansion:.3f}")
+
+# ---------------- График ДН ----------------
+
+theta_u = params_uniform["theta"]
+AF_u = params_uniform["AF_dB"]
+
+theta_c = params_cos2["theta"]
+AF_c = params_cos2["AF_dB"]
+
+plt.figure(figsize=(10, 4))
+plt.plot(theta_u, AF_u, label="Равномерное распределение")
+plt.plot(theta_c, AF_c, label=f"cos² на пьедестале (Δ={DELTA:.3f})", linestyle="--")
+plt.ylim(-60, 0)
+plt.xlabel("Угол θ, градусы")
+plt.ylabel("Уровень, дБ")
+plt.title(f"ДН ФАР")
+plt.grid(True)
+plt.legend()
+plt.tight_layout()
+plt.show()
