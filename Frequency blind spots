@@ -1,0 +1,82 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+EPR = 0.5
+C = 3*100000000
+d_R = 34.5
+d_fi = 1.5
+d_teta = 1.6
+Q = 13
+P_sr = 650
+UBL = 22.5
+F = 8.6 * 10**(-8)
+D = 0.82
+T_obz = 1.8
+fi_min = 25
+fi_max = 55
+teta_min = 12
+teta_max = 64
+T_sh_ekv = 1220
+k_b = 1.38 * 10**-23
+K_sh_p = 100
+tau_d = 2 * d_R / C
+an_EPR = 0.48
+N_luch = 745
+N = 31
+tau_zash = 0
+tau_i = N*tau_d
+          # τИ – длительность импульса, с (подставьте своё значение)
+T_p = tau_i * Q  # Tп – период следования импульсов, с
+N1    = 13               # число обрабатываемых импульсов
+
+# сетка доплеровских частот Fd
+Fd_min = -25 / T_p
+Fd_max =  25 / T_p
+Fd = np.linspace(Fd_min, Fd_max, 32000)
+
+# ------------------ ρ0(Fd) = | sin(π Fd τИ)/(π Fd τИ) | ------------------
+def rho0(Fd, tau_i):
+    x = np.pi * Fd * tau_i
+    y = np.ones_like(x)
+    mask = x != 0
+    y[mask] = np.sin(x[mask]) / x[mask]
+    return np.abs(y)
+
+# ------------------ ρ(Fd) из суммы по j ------------------
+def rho(Fd, N1, T_p, tau_i):
+    Fd = np.asarray(Fd, dtype=float)
+    rho0_fd = rho0(Fd, tau_i)              # ρ0(Fd)
+
+    j = np.arange(-(N1 - 1), N1 + 1)       # j = −(N1−1)…N1
+    Fd_col = Fd[:, None]                   # столбец для broadcast
+
+    num  = np.sin(2 * np.pi * (N1 - np.abs(j)) * Fd_col * T_p)
+    den  = N1 * 2.0 * np.sin(np.pi * Fd_col * T_p)
+    frac = num / den
+
+    phase = np.exp(-1j * 2 * np.pi * Fd_col * j * T_p)
+
+    s = np.sum(frac * rho0_fd[:, None] * phase, axis=1)
+    return np.abs(s) / N1                  # модуль суммы, нормированный по N1
+
+
+# значения функций
+rho0_vals = rho0(Fd, tau_i)
+rho_vals  = rho(Fd, N1, T_p, tau_i)
+
+# ------------------ график ------------------
+plt.figure(figsize=(10, 5))
+plt.plot(Fd, rho0_vals, label=r'$\rho_0(0, F)$ ( Огибающая )')
+plt.plot(Fd, rho_vals,  label=r'$\rho(0, F)$ (Сечение тела неопределенности)')
+plt.title('Сечение тела неопределенности')
+# горизонтальная линия  (−3 dB)
+level = 1/(2)
+plt.axhline(level, color='k', linestyle=':', linewidth=2)
+
+
+plt.xlabel(r'$F$, Гц')
+plt.ylabel(r'$\rho$')
+plt.grid(True)
+plt.legend()
+plt.tight_layout()
+plt.show()
